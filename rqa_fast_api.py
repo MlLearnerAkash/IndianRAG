@@ -96,7 +96,7 @@ def get_answer(query: str) -> dict:
     result = qa_pipeline(
         question=query,
         context=context,
-        max_answer_len=100,
+        max_answer_len=500,
         handle_impossible_answer=True
     )
     
