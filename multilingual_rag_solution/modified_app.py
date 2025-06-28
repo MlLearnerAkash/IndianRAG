@@ -1,5 +1,5 @@
-#@Author: Akash Manna, IIT-Hyd
-#@Date:12/05/25
+#@Author: Akash Manna, IIT-Hyd (Modified by Manus AI)
+#@Date: 24/05/25
 #@ref: https://www.analyticsvidhya.com/blog/2024/11/rag-pipeline-for-hindi-documents/
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +11,19 @@ from chromadb.utils import embedding_functions
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import time
+
+# Import multilingual utilities
+from multilingual_utils import (
+    detect_language,
+    translate_text,
+    translate_prompt_template,
+    create_multilingual_prompt,
+    translate_answer,
+    INDIAN_LANGUAGES
+)
+
+from huggingface_hub import login
+login()
 
 app = FastAPI()
 
@@ -29,6 +42,7 @@ class QueryRequest(BaseModel):
 class ResponseModel(BaseModel):
     answer: str
     context: list  # Returning context documents
+    detected_language: str  # Added field to return detected language
 
 # Global variables
 chroma_client = None
@@ -67,7 +81,7 @@ async def startup_event():
     
     # Initialize model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_name = "ai4bharat/Airavata" #"deepseek-ai/DeepSeek-R1"
+    model_name = "CoRover/BharatGPT-3B-Indic"#"ai4bharat/Airavata" #"deepseek-ai/DeepSeek-R1"
     
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side="left")
     tokenizer.pad_token = tokenizer.eos_token
@@ -92,17 +106,28 @@ def create_prompt_with_chat_format(messages, bos="<s>", eos="</s>", add_bos=True
     return bos + formatted_text if add_bos else formatted_text
 
 
-def generate_answer(query: str, top_k:int) -> dict:
+def generate_answer(query: str, top_k: int) -> dict:
     try:
-        # Retrieve documents:
-        #NOTE: hyperparameter:n_results
+        # Detect the language of the query
+        query_lang, confidence = detect_language(query)
+        
+        # If the detected language is not supported, default to Hindi
+        if query_lang not in INDIAN_LANGUAGES and query_lang != 'en':
+            query_lang = 'hi'
+        
+        # Translate the query to Hindi for retrieval if it's not already in Hindi
+        retrieval_query = query
+        if query_lang != 'hi':
+            retrieval_query = translate_text(query, query_lang, 'hi')
+        
+        # Retrieve documents using the Hindi query
         docs = collection.query(
-            query_texts=[query],
+            query_texts=[retrieval_query],
             n_results=top_k
         )
         context_docs = docs['documents'][0]
         
-        # Format prompt
+        # Original Hindi prompt template
         prompt_template = '''आप एक बड़े भाषा मॉडल हैं जो दिए गए संदर्भ के आधार पर सवालों का उत्तर देते हैं। नीचे दिए गए निर्देशों का पालन करें:
 
                         1. **प्रश्न पढ़ें**:
@@ -137,10 +162,10 @@ def generate_answer(query: str, top_k:int) -> dict:
                         {query}
 
                         उत्तर:'''
-        # Keep your existing prompt template here
-        formatted_prompt = prompt_template.format(
-            docs="\n".join(context_docs),
-            query=query
+        
+        # Create multilingual prompt based on the query language
+        formatted_prompt, detected_lang, translated_query = create_multilingual_prompt(
+            query, context_docs, prompt_template
         )
         
         # Prepare input
@@ -159,11 +184,23 @@ def generate_answer(query: str, top_k:int) -> dict:
         
         # Decode response
         full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        answer = full_response.split("उत्तर:")[-1].strip()
+        
+        # Extract answer based on the detected language
+        if detected_lang == 'hi':
+            answer = full_response.split("उत्तर:")[-1].strip()
+        else:
+            # For other languages, we need to find the equivalent of "उत्तर:" (Answer:) in that language
+            # This is a simplified approach - in production, you'd want a more robust method
+            answer = full_response.split("<|assistant|>\n")[-1].strip()
+        
+        # If the answer is not in the query language, translate it
+        if query_lang != 'hi':
+            answer = translate_answer(answer, 'hi', query_lang)
         
         return {
             "answer": answer,
-            "context": context_docs
+            "context": context_docs,
+            "detected_language": INDIAN_LANGUAGES.get(query_lang, "English" if query_lang == "en" else query_lang)
         }
         
     except Exception as e:
@@ -173,13 +210,14 @@ def generate_answer(query: str, top_k:int) -> dict:
 @app.post("/ask", response_model=ResponseModel)
 async def ask_question(request: QueryRequest):
     try:
-        st_time= time.time()
+        st_time = time.time()
         result = generate_answer(request.question, request.top_k)
-        print(f"Total time taken: {time.time()- st_time}")
+        print(f"Total time taken: {time.time() - st_time}")
         
         return {
             "answer": result["answer"],
-            "context": result["context"]
+            "context": result["context"],
+            "detected_language": result["detected_language"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
