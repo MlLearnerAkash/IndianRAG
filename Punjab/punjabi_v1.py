@@ -93,43 +93,6 @@ def load_fasttext_model(lang_code: str):
 async def expand_query(query):
     return "expanded query"
 
-# async def fetch_keyword_context(keyword: str) -> List[str]:
-#     print(f"Searching for keyword: {keyword}")
-#     try:
-#         response = requests.get(
-#             SEARCH_API_URL,
-#             headers={
-#                 "accept": "application/json",
-#                 "X-CSRFTOKEN": "IoWOF580TbPZnGZrVHUWvp8nKyETwjmLfHh2RSb1cW3vY7ziKKvQM0F4QiKRvH36"
-#             },
-#             params={"q": keyword},
-#             timeout=1000.0,
-#             verify=False  # Add this if SSL verification is needed
-#         )
-
-#         # Check for HTTP errors
-#         response.raise_for_status()
-        
-#         data = response.json()
-#         print(f"API response received: {data.keys()}")
-        
-#         return [" ".join(page["full_text"]) for page in data.get("pages", [])]
-
-#     except requests.exceptions.HTTPError as e:
-#         print(f"HTTP Error: {e.response.status_code} - {e.response.text}")
-#         raise HTTPException(status_code=500, detail=f"Search API HTTP error: {str(e)}")
-    
-#     except requests.exceptions.JSONDecodeError:
-#         print(f"Invalid JSON response: {response.text}")
-#         raise HTTPException(status_code=500, detail="Invalid JSON response from search API")
-    
-#     except requests.exceptions.RequestException as e:
-#         print(f"Request failed: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Search API connection error: {str(e)}")
-    
-#     except Exception as e:
-#         print(f"Unexpected error: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Search API error: {str(e)}")
 
 async def fetch_keyword_context(keyword: str) -> List[str]:
     print(f"Searching for keyword: {keyword}")
@@ -213,7 +176,7 @@ async def fetch_keyword_context(keyword: str) -> List[str]:
 
 
 class ExpansionLLM:
-    def __init__(self, model_name="ai4bharat/IndicBART-XXEN"):
+    def __init__(self, model_name="google/mt5-large"):
         self.generator = pipeline(
             "text2text-generation",
             model=model_name,
@@ -234,39 +197,53 @@ class ExpansionLLM:
         }
         self.instructions = {
             'en_XX': (
-                "Expand and enrich this Indian context with cultural explanations: "
+                "Translate the following context into English, then expand it with Indian cultural explanations "
+                "and relevant background without omitting any original detail:\n\n"
                 "Original Context: '{context}'\n"
-                "Related Question: '{question}'\n"
-                "Add regional terms in brackets, explain local references, "
-                "and provide necessary background. "
-                "DO NOT ANSWER THE QUESTION - ONLY EXPAND THE CONTEXT.\n"
+                "Related Question: '{question}'\n\n"
+                "- Retain all facts and data verbatim.\n"
+                "- Provide translations for any non-English terms.\n"
+                "- Add regional terms in brackets (e.g., [mandir], [Diwali]).\n"
+                "- Explain local references and cultural significance.\n"
+                "- Include any necessary historical or social background.\n\n"
                 "Expanded Context:"
             ),
             'hi_IN': (
-                "सन्दर्भ को भारतीय सांस्कृतिक संदर्भ के साथ विस्तृत करें: "
-                "मूल सन्दर्भ: '{context}'\n"
-                "सम्बंधित प्रश्न: '{question}'\n"
-                "स्थानीय शब्दों की व्याख्या करें, सांस्कृतिक पृष्ठभूमि जोड़ें। "
-                "प्रश्न का उत्तर न दें - केवल सन्दर्भ का विस्तार करें।\n"
-                "विस्तृत सन्दर्भ:"
+                "निम्नलिखित सन्दर्भ का हिंदी में अनुवाद करें, फिर इसे भारतीय सांस्कृतिक व्याख्याओं "
+                "और प्रासंगिक पृष्ठभूमि के साथ विस्तार से प्रस्तुत करें, मूल जानकारी का कोई भी भाग "
+                "हटाए बिना:\n\n"
+                "मूल संदर्भ: '{context}'\n"
+                "संबंधित प्रश्न: '{question}'\n\n"
+                "- सभी तथ्य और आँकड़े बिना परिवर्तन के रखें।\n"
+                "- गैर‑हिंदी शब्दों का हिंदी अनुवाद दें और मूल शब्द को कोष्ठकों में रखें।\n"
+                "- स्थानीय शब्दों की व्याख्या करें (जैसे [मंदिर], [दीवाली])।\n"
+                "- संदर्भित ऐतिहासिक, सामाजिक या सांस्कृतिक पृष्ठभूमि जोड़ें।\n\n"
+                "विस्तृत संदर्भ:"
             ),
             'pa_IN': (
-                "ਭਾਰਤੀ ਸੱਭਿਆਚਾਰਕ ਪਿਛੋਕੜ ਨਾਲ ਸੰਦਰਭ ਦਾ ਵਿਸਤਾਰ ਕਰੋ: "
+                "ਹੇਠਾਂ ਦਿੱਤੇ ਸੰਦਰਭ ਦਾ ਪੰਜਾਬੀ ਵਿੱਚ ਤਰਜਮਾ ਕਰੋ, ਫਿਰ ਇਸ ਨੂੰ ਕੋਈ ਵੀ ਮੂਲ ਜਾਣਕਾਰੀ ਗੁਆਏ ਬਿਨਾਂ "
+                "ਭਾਰਤੀ ਸੱਭਿਆਚਾਰਕ ਵਿਆਖਿਆਵਾਂ ਅਤੇ ਲੋੜੀਂਦੀ ਪਿਛੋਕੜ ਨਾਲ ਵਿਸਤਾਰ ਕਰੋ:\n\n"
                 "ਮੂਲ ਸੰਦਰਭ: '{context}'\n"
-                "ਸਬੰਧਤ ਪ੍ਰਸ਼ਨ: '{question}'\n"
-                "ਸਥਾਨਕ ਸ਼ਬਦਾਂ ਦੀ ਵਿਆਖਿਆ ਕਰੋ, ਸੱਭਿਆਚਾਰਕ ਪਿਛੋਕੜ ਸ਼ਾਮਲ ਕਰੋ। "
-                "ਪ੍ਰਸ਼ਨ ਦਾ ਜਵਾਬ ਨਾ ਦਿਓ - ਕੇਵਲ ਸੰਦਰਭ ਦਾ ਵਿਸਤਾਰ ਕਰੋ।\n"
+                "ਸਬੰਧਤ ਪ੍ਰਸ਼ਨ: '{question}'\n\n"
+                "- ਸਾਰੇ ਤੱਥ ਅਤੇ ਅੰਕੜੇ ਬਿਨਾਂ ਬਦਲਾਅ ਦੇ ਰੱਖੋ।\n"
+                "- ਕੋਈ ਵੀ ਅੰਗਰੇਜ਼ੀ ਯਾ ਹੋਰ ਭਾਸ਼ਾ ਦੇ ਸ਼ਬਦ ਸਭ ਤੋਂ ਪਹਿਲਾਂ ਪੰਜਾਬੀ ਵਿੱਚ ਅਨੁਵਾਦ ਕਰੋ।\n"
+                "- ਅਸਲ ਸ਼ਬਦ ਨੂੰ ਕੋਠਿਆਂ ‘ਚ ([]) ਵਿੱਚ ਦਿਖਾਓ ਜਿਵੇਂ [ਗੁਰਦੁਆਰਾ], [ਲੰਗਰ]।\n"
+                "- ਸਥਾਨਕ ਸੰਦਰਭ ਅਤੇ ਇਤਿਹਾਸਕ/ਸਮਾਜਿਕ ਮਹੱਤਵ ਬਿਆਨ ਕਰੋ।\n\n"
                 "ਵਿਸਤ੍ਰਿਤ ਸੰਦਰਭ:"
             ),
             'default': (
-                "Expand and enrich this Indian context with cultural explanations: "
+                "Translate and enrich this context with Indian cultural and historical explanations, "
+                "while preserving every detail:\n\n"
                 "Original Context: '{context}'\n"
-                "Related Question: '{question}'\n"
-                "Add regional terms in brackets, explain local references. "
-                "DO NOT ANSWER THE QUESTION - ONLY EXPAND THE CONTEXT.\n"
+                "Related Question: '{question}'\n\n"
+                "- Keep all facts/data exactly as is.\n"
+                "- Translate non-target‑language terms and show originals in brackets.\n"
+                "- Add regional terms, explain local place‑names, festivals, customs.\n"
+                "- Provide any needed historical or social background.\n\n"
                 "Expanded Context:"
             )
         }
+
         # Chunk size in characters (conservative estimate for token limits)
         self.chunk_size = 1000  # Characters per chunk
         self.overlap_size = 0  # Character overlap between chunks
@@ -281,11 +258,9 @@ class ExpansionLLM:
             
         # Get instruction template
         instruction = self.instructions.get(lang_token, self.instructions['default'])
-        
         # Process in chunks if context is large
         if len(context) > self.chunk_size:
             return await self._expand_in_chunks(context, question, lang_token, instruction)
-        
         # Process single chunk
         return await self._expand_chunk(context, question, lang_token, instruction)
 
@@ -304,16 +279,16 @@ class ExpansionLLM:
                 end = next_boundary
                 
             chunk = context[start:end].strip()
-            
             # Expand the chunk
             expanded = await self._expand_chunk(chunk, question, lang_token, instruction)
+            
+
             expanded_parts.append(expanded)
             
             # Move to next chunk with overlap
             start = end - self.overlap_size
             if start < 0:
                 start = 0
-                
         # Combine expanded parts
         return " ".join(expanded_parts)
 
@@ -339,12 +314,21 @@ class ExpansionLLM:
             None, 
             lambda: self.generator(
                 prompt,
-                max_length=1024,
+                max_length=512,
                 num_beams=4,
                 no_repeat_ngram_size=10,
                 early_stopping=False
             )
         )
+
+        # result = await self.generator(
+        #         prompt,
+        #         max_length=512,
+        #         num_beams=4,
+        #         no_repeat_ngram_size=1,
+        #         early_stopping=False
+        #     )
+        
         expanded = result[0]['generated_text'].replace(f"[{lang_token}]", "").strip()
         return expanded
 
@@ -427,7 +411,13 @@ def generate_answer(prompt: str) -> str:
             )
         
         full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return full_response.split("ਉਤਰ:")[-1].strip()
+        #NOTE: to parse and cleaning response
+        match = re.search(r"\*\*ਜਵਾਬ\*\*:\s*(.*?)\n", full_response.split("ਉਤਰ:")[-1])
+        if match:
+            answer = match.group(1).strip()
+        else:
+            answer = "NOT FOUND"        
+        return full_response.split("ਉਤਰ:")[-1].strip("**ਜਵਾਬ**")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation error: {str(e)}")
 
@@ -449,9 +439,10 @@ async def ask_question(request: QueryRequest):
         context_pages = await fetch_keyword_context(request.keyword)
         
         # Combine first 3 pages to avoid context overflow
-        combined_context = " ".join(context_pages[:3])[:3000]  # Reduced limit
-        combined_context = re.sub(r'[\x00-\x1F\x7F]+', ' ', combined_context).strip()
         
+        combined_context = " ".join(context_pages[:-1])[:4000]  # Reduced limit
+        combined_context = re.sub(r'[\x00-\x1F\x7F]+', ' ', combined_context).strip()
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>", len(combined_context))
         # Step 2: Expand context using async method
         print("Starting expanding context")
         print(">>>>>>>original context>>>>>", combined_context)
