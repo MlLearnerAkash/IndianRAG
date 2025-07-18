@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from transformers import AutoModelForCausalLM
 from typing import Optional
 import numpy as np
+from googletrans import Translator, LANGUAGES  # Add this import
 
 
 # from huggingface_hub import login
@@ -55,6 +56,34 @@ collection = None
 model = None
 tokenizer = None
 
+async def translate_hindi_to_english(text: str) -> str:
+    """Translate Hindi text to English using Google Translate API"""
+    if not text.strip():
+        return text
+        
+    try:
+        # Detect language
+        # lang = await translator.detect(text).lang
+        # print(">>>>>>detected lang>>>>>", lang)
+        # if lang == 'hi':
+        translation = await translator.translate(text, src='hi', dest='en')
+        return translation.text
+        # return text
+    except Exception as e:
+        logger.error(f"Translation error: {e}")
+        return text  # Return original as fallback
+
+async def translate_english_to_hindi(text: str) -> str:
+    """Translate English text to Hindi using Google Translate API"""
+    if not text.strip():
+        return text
+        
+    try:
+        translation = await translator.translate(text, src='en', dest='hi')
+        return translation.text
+    except Exception as e:
+        logger.error(f"Translation error: {e}")
+        return text  # Return original as fallback
 
 # Add perplexity calculation function
 def compute_perplexity(text, model, tokenizer):
@@ -134,8 +163,10 @@ def extract_keyword(question: str) -> str:
 
 @app.on_event("startup")
 async def startup_event():
-    global chroma_client, collection, model, tokenizer,nlp, slm_model, slm_tokenizer
+    global chroma_client, collection, model, tokenizer,nlp, slm_model, slm_tokenizer, translator
 
+    # Initialize translator
+    translator = Translator()
     #Initialize spaCy for keyword extraction
     try:
         nlp = spacy.load("en_core_web_sm")
@@ -202,19 +233,6 @@ async def startup_event():
         device_map = "auto"
     )#.to(device)
 
-    # Initialize Small Language Model (SLM)
-    #TODO:due to memory issue
-    # slm_model_name = "microsoft/phi-2"  # Replace with your preferred SLM
-    # slm_tokenizer = AutoTokenizer.from_pretrained(slm_model_name, trust_remote_code=True)
-    # slm_tokenizer.pad_token = slm_tokenizer.eos_token
-    
-    # slm_model = AutoModelForCausalLM.from_pretrained(
-    #     slm_model_name,
-    #     torch_dtype=torch.bfloat16,
-    #     device_map="auto",
-    #     trust_remote_code=True
-    # )
-    # slm_model.eval()
 
 
 def create_prompt_with_chat_format(messages, bos="<s>", eos="</s>", add_bos=True):
@@ -290,26 +308,34 @@ def generate_answer(query: str, top_k: int, model) -> dict:
 async def ask_question(request: QueryRequest):
     try:
         st_time = time.time()
+        # Step 0: Translate Hindi question to English
+        original_question = request.question
+        print(">>>>>>>", original_question)
+        english_question = await translate_hindi_to_english(original_question)
+        logger.info(f"Translated question: {original_question} -> {english_question}")
+
         # Step 1: Extract keyword
-        keyword = extract_keyword(request.question)
-        print("The extracted keyword is:", keyword)
+        keyword = extract_keyword(english_question)
+        print("The extracted keyword is>>>>>>>>>:", keyword)
         
         # Step 2: Get meta context from API (e.g., retrieved documents or related content)
         meta_context = get_context_from_api(keyword=keyword, top_k=request.top_k)
         
         
         # Step 3: Generate answer along with associated contexts
-        result = generate_answer(request.question, request.top_k, model=model)
-        answer = result["answer"]
+        result = generate_answer(english_question, request.top_k, model=model)
+        english_answer = result["answer"]
         contexts = result["context"]
-        
+        # Step 3.2: Translate answer back to Hindi
+        hindi_answer = await translate_english_to_hindi(english_answer)
+        logger.info(f"Translated answer: {english_answer} -> {hindi_answer}")
         print(f"Total time taken: {time.time() - st_time}")
 
         # Step 4: Measure BERT score for the answer against each context
         bert_scores = []
         for context in contexts:
             # Compute BERT score between the answer and the current context.
-            P, R, F1 = score([answer], [context], lang="en", verbose=False)
+            P, R, F1 = score([english_answer], [context], lang="en", verbose=False)
             bert_scores.append({
                 "context": context,
                 "P": float(P),
@@ -321,7 +347,7 @@ async def ask_question(request: QueryRequest):
 
         search_f1 = []
         for ctx in meta_context[2][:3]:
-            P, R, F1 = score([answer], [ctx["full_text"]], lang="en", verbose=False)
+            P, R, F1 = score([english_answer], [ctx["full_text"]], lang="en", verbose=False)
             search_f1.append(float(F1))
         search_f1 = sorted(search_f1,  reverse=False)
         
@@ -397,7 +423,7 @@ async def ask_question(request: QueryRequest):
         
         
         # Return answer along with meta context and ranked contexts with their BERT scores
-        return {"answer": answer, "meta_context": meta_context, "context": ranked_contexts}
+        return {"answer": hindi_answer, "meta_context": meta_context, "context": ranked_contexts}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
